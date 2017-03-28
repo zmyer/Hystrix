@@ -116,9 +116,12 @@ public class HystrixConfigurationJsonStream {
     private static void writeThreadPoolConfigJson(JsonGenerator json, HystrixThreadPoolKey threadPoolKey, HystrixThreadPoolConfiguration threadPoolConfig) throws IOException {
         json.writeObjectFieldStart(threadPoolKey.name());
         json.writeNumberField("coreSize", threadPoolConfig.getCoreSize());
+        json.writeNumberField("maximumSize", threadPoolConfig.getMaximumSize());
+        json.writeNumberField("actualMaximumSize", threadPoolConfig.getActualMaximumSize());
         json.writeNumberField("maxQueueSize", threadPoolConfig.getMaxQueueSize());
         json.writeNumberField("queueRejectionThreshold", threadPoolConfig.getQueueRejectionThreshold());
         json.writeNumberField("keepAliveTimeInMinutes", threadPoolConfig.getKeepAliveTimeInMinutes());
+        json.writeBooleanField("allowMaximumSizeToDivergeFromCoreSize", threadPoolConfig.getAllowMaximumSizeToDivergeFromCoreSize());
         json.writeNumberField("counterBucketSizeInMilliseconds", threadPoolConfig.getRollingCounterBucketSizeInMilliseconds());
         json.writeNumberField("counterBucketCount", threadPoolConfig.getRollingCounterNumberOfBuckets());
         json.writeEndObject();

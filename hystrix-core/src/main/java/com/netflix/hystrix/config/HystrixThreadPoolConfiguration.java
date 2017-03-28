@@ -19,21 +19,25 @@ import com.netflix.hystrix.HystrixThreadPoolKey;
 import com.netflix.hystrix.HystrixThreadPoolProperties;
 
 public class HystrixThreadPoolConfiguration {
-    //The idea is for this object to be serialized off-box.  For future-proofing, I'm adding a version so that changing config over time can be handled gracefully
-    private static final String VERSION = "1";
     private final HystrixThreadPoolKey threadPoolKey;
     private final int coreSize;
+    private final int maximumSize;
+    private final int actualMaximumSize;
     private final int maxQueueSize;
     private final int queueRejectionThreshold;
     private final int keepAliveTimeInMinutes;
+    private final boolean allowMaximumSizeToDivergeFromCoreSize;
     private final int rollingCounterNumberOfBuckets;
     private final int rollingCounterBucketSizeInMilliseconds;
 
-    public HystrixThreadPoolConfiguration(HystrixThreadPoolKey threadPoolKey, int coreSize, int maxQueueSize, int queueRejectionThreshold,
-                                           int keepAliveTimeInMinutes, int rollingCounterNumberOfBuckets,
+    private HystrixThreadPoolConfiguration(HystrixThreadPoolKey threadPoolKey, int coreSize, int maximumSize, int actualMaximumSize, int maxQueueSize, int queueRejectionThreshold,
+                                           int keepAliveTimeInMinutes, boolean allowMaximumSizeToDivergeFromCoreSize, int rollingCounterNumberOfBuckets,
                                            int rollingCounterBucketSizeInMilliseconds) {
         this.threadPoolKey = threadPoolKey;
+        this.allowMaximumSizeToDivergeFromCoreSize = allowMaximumSizeToDivergeFromCoreSize;
         this.coreSize = coreSize;
+        this.maximumSize = maximumSize;
+        this.actualMaximumSize = actualMaximumSize;
         this.maxQueueSize = maxQueueSize;
         this.queueRejectionThreshold = queueRejectionThreshold;
         this.keepAliveTimeInMinutes = keepAliveTimeInMinutes;
@@ -41,15 +45,17 @@ public class HystrixThreadPoolConfiguration {
         this.rollingCounterBucketSizeInMilliseconds = rollingCounterBucketSizeInMilliseconds;
     }
 
-    public static HystrixThreadPoolConfiguration sample(HystrixThreadPoolKey threadPoolKey, HystrixThreadPoolProperties threadPoolProperties) {
-        return new HystrixThreadPoolConfiguration(
-                threadPoolKey,
-                threadPoolProperties.coreSize().get(),
-                threadPoolProperties.maxQueueSize().get(),
-                threadPoolProperties.queueSizeRejectionThreshold().get(),
-                threadPoolProperties.keepAliveTimeMinutes().get(),
+    private HystrixThreadPoolConfiguration(HystrixThreadPoolKey threadPoolKey, HystrixThreadPoolProperties threadPoolProperties) {
+        this(threadPoolKey, threadPoolProperties.coreSize().get(),
+                threadPoolProperties.maximumSize().get(), threadPoolProperties.actualMaximumSize(),
+                threadPoolProperties.maxQueueSize().get(), threadPoolProperties.queueSizeRejectionThreshold().get(),
+                threadPoolProperties.keepAliveTimeMinutes().get(), threadPoolProperties.getAllowMaximumSizeToDivergeFromCoreSize().get(),
                 threadPoolProperties.metricsRollingStatisticalWindowBuckets().get(),
                 threadPoolProperties.metricsRollingStatisticalWindowInMilliseconds().get());
+    }
+
+    public static HystrixThreadPoolConfiguration sample(HystrixThreadPoolKey threadPoolKey, HystrixThreadPoolProperties threadPoolProperties) {
+        return new HystrixThreadPoolConfiguration(threadPoolKey, threadPoolProperties);
     }
 
     public HystrixThreadPoolKey getThreadPoolKey() {
@@ -58,6 +64,27 @@ public class HystrixThreadPoolConfiguration {
 
     public int getCoreSize() {
         return coreSize;
+    }
+
+    /**
+     * Simple getter that returns what the `maximumSize` property is configured as
+     * @return
+     */
+    public int getMaximumSize() {
+        return maximumSize;
+    }
+
+    /**
+     * Given all of the thread pool configuration, what is the actual maximumSize applied to the thread pool.
+     *
+     * Cases:
+     * 1) allowMaximumSizeToDivergeFromCoreSize == false: maximumSize is set to coreSize
+     * 2) allowMaximumSizeToDivergeFromCoreSize == true, maximumSize >= coreSize: thread pool has different core/max sizes, so return the configured max
+     * 3) allowMaximumSizeToDivergeFromCoreSize == true, maximumSize < coreSize: threadpool incorrectly configured, use coreSize for max size
+     * @return actually configured maximum size of threadpool
+     */
+    public int getActualMaximumSize() {
+        return this.actualMaximumSize;
     }
 
     public int getMaxQueueSize() {
@@ -70,6 +97,10 @@ public class HystrixThreadPoolConfiguration {
 
     public int getKeepAliveTimeInMinutes() {
         return keepAliveTimeInMinutes;
+    }
+
+    public boolean getAllowMaximumSizeToDivergeFromCoreSize() {
+        return allowMaximumSizeToDivergeFromCoreSize;
     }
 
     public int getRollingCounterNumberOfBuckets() {

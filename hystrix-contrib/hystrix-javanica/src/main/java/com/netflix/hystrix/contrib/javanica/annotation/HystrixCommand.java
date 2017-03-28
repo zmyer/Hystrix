@@ -100,7 +100,8 @@ public @interface HystrixCommand {
     HystrixProperty[] threadPoolProperties() default {};
 
     /**
-     * Defines exceptions which should be ignored and wrapped to throw in HystrixBadRequestException.
+     * Defines exceptions which should be ignored.
+     * Optionally these can be wrapped in HystrixRuntimeException if raiseHystrixExceptions contains RUNTIME_EXCEPTION.
      *
      * @return exceptions to ignore
      */
@@ -113,5 +114,21 @@ public @interface HystrixCommand {
      * @return observable execution mode
      */
     ObservableExecutionMode observableExecutionMode() default ObservableExecutionMode.EAGER;
+
+    /**
+     * When includes RUNTIME_EXCEPTION, any exceptions that are not ignored are wrapped in HystrixRuntimeException.
+     *
+     * @return exceptions to wrap
+     */
+    HystrixException[] raiseHystrixExceptions() default {};
+
+    /**
+     * Specifies default fallback method for the command. If both {@link #fallbackMethod} and {@link #defaultFallback}
+     * methods are specified then specific one is used.
+     * note: default fallback method cannot have parameters, return type should be compatible with command return type.
+     *
+     * @return the name of default fallback method
+     */
+    String defaultFallback() default "";
 }
 

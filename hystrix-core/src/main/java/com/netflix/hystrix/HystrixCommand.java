@@ -23,6 +23,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.netflix.hystrix.util.Exceptions;
 import rx.Observable;
 import rx.functions.Action0;
 
@@ -208,7 +209,7 @@ public abstract class HystrixCommand<R> extends AbstractCommand<R> implements Hy
          *            <p>
          *            NOTE: Every unique {@link HystrixCommandKey} will result in new instances of {@link HystrixCircuitBreaker}, {@link HystrixCommandMetrics} and {@link HystrixCommandProperties}.
          *            Thus,
-         *            the number of variants should be kept to a finite and reasonable number to avoid high-memory usage or memory leacks.
+         *            the number of variants should be kept to a finite and reasonable number to avoid high-memory usage or memory leaks.
          *            <p>
          *            Hundreds of keys is fine, tens of thousands is probably not.
          * @return Setter for fluent interface via method chaining
@@ -342,7 +343,7 @@ public abstract class HystrixCommand<R> extends AbstractCommand<R> implements Hy
         try {
             return queue().get();
         } catch (Exception e) {
-            throw decomposeException(e);
+            throw Exceptions.sneakyThrow(decomposeException(e));
         }
     }
 
@@ -435,11 +436,11 @@ public abstract class HystrixCommand<R> extends AbstractCommand<R> implements Hy
                 f.get();
                 return f;
             } catch (Exception e) {
-                RuntimeException re = decomposeException(e);
-                if (re instanceof HystrixBadRequestException) {
+                Throwable t = decomposeException(e);
+                if (t instanceof HystrixBadRequestException) {
                     return f;
-                } else if (re instanceof HystrixRuntimeException) {
-                    HystrixRuntimeException hre = (HystrixRuntimeException) re;
+                } else if (t instanceof HystrixRuntimeException) {
+                    HystrixRuntimeException hre = (HystrixRuntimeException) t;
                     switch (hre.getFailureType()) {
 					case COMMAND_EXCEPTION:
 					case TIMEOUT:
@@ -450,7 +451,7 @@ public abstract class HystrixCommand<R> extends AbstractCommand<R> implements Hy
 						throw hre;
 					}
                 } else {
-                    throw re;
+                    throw Exceptions.sneakyThrow(t);
                 }
             }
         }

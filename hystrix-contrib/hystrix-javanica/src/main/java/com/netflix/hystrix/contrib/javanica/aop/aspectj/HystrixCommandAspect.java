@@ -21,11 +21,13 @@ import com.netflix.hystrix.HystrixInvokable;
 import com.netflix.hystrix.contrib.javanica.annotation.DefaultProperties;
 import com.netflix.hystrix.contrib.javanica.annotation.HystrixCollapser;
 import com.netflix.hystrix.contrib.javanica.annotation.HystrixCommand;
+import com.netflix.hystrix.contrib.javanica.annotation.HystrixException;
 import com.netflix.hystrix.contrib.javanica.command.CommandExecutor;
 import com.netflix.hystrix.contrib.javanica.command.ExecutionType;
 import com.netflix.hystrix.contrib.javanica.command.HystrixCommandFactory;
 import com.netflix.hystrix.contrib.javanica.command.MetaHolder;
 import com.netflix.hystrix.contrib.javanica.exception.CommandActionExecutionException;
+import com.netflix.hystrix.contrib.javanica.exception.FallbackInvocationException;
 import com.netflix.hystrix.contrib.javanica.utils.AopUtils;
 import com.netflix.hystrix.contrib.javanica.utils.FallbackMethod;
 import com.netflix.hystrix.contrib.javanica.utils.MethodProvider;
@@ -51,6 +53,7 @@ import java.util.concurrent.Future;
 
 import static com.netflix.hystrix.contrib.javanica.utils.AopUtils.getDeclaredMethod;
 import static com.netflix.hystrix.contrib.javanica.utils.AopUtils.getMethodFromTarget;
+import static com.netflix.hystrix.contrib.javanica.utils.AopUtils.getMethodInfo;
 import static com.netflix.hystrix.contrib.javanica.utils.EnvUtils.isCompileWeaving;
 import static com.netflix.hystrix.contrib.javanica.utils.ajc.AjcUtils.getAjcMethodAroundAdvice;
 
@@ -102,12 +105,12 @@ public class HystrixCommandAspect {
         } catch (HystrixBadRequestException e) {
             throw e.getCause();
         } catch (HystrixRuntimeException e) {
-            throw getCauseOrDefault(e, e);
+            throw hystrixRuntimeExceptionToThrowable(metaHolder, e);
         }
         return result;
     }
 
-    private Observable executeObservable(HystrixInvokable invokable, ExecutionType executionType, MetaHolder metaHolder) {
+    private Observable executeObservable(HystrixInvokable invokable, ExecutionType executionType, final MetaHolder metaHolder) {
         return ((Observable) CommandExecutor.execute(invokable, executionType, metaHolder))
                 .onErrorResumeNext(new Func1<Throwable, Observable>() {
                     @Override
@@ -116,20 +119,39 @@ public class HystrixCommandAspect {
                             return Observable.error(throwable.getCause());
                         } else if (throwable instanceof HystrixRuntimeException) {
                             HystrixRuntimeException hystrixRuntimeException = (HystrixRuntimeException) throwable;
-                            return Observable.error(getCauseOrDefault(hystrixRuntimeException, hystrixRuntimeException));
+                            return Observable.error(hystrixRuntimeExceptionToThrowable(metaHolder, hystrixRuntimeException));
                         }
                         return Observable.error(throwable);
                     }
                 });
     }
 
-    private Throwable getCauseOrDefault(RuntimeException e, RuntimeException defaultException) {
-        if (e.getCause() == null) return defaultException;
-        if (e.getCause() instanceof CommandActionExecutionException) {
-            CommandActionExecutionException commandActionExecutionException = (CommandActionExecutionException) e.getCause();
-            return Optional.fromNullable(commandActionExecutionException.getCause()).or(defaultException);
+    private Throwable hystrixRuntimeExceptionToThrowable(MetaHolder metaHolder, HystrixRuntimeException e) {
+        if (metaHolder.raiseHystrixExceptionsContains(HystrixException.RUNTIME_EXCEPTION)) {
+            return e;
         }
-        return e.getCause();
+        return getCause(e);
+    }
+
+    private Throwable getCause(HystrixRuntimeException e) {
+        if (e.getFailureType() != HystrixRuntimeException.FailureType.COMMAND_EXCEPTION) {
+            return e;
+        }
+
+        Throwable cause = e.getCause();
+
+        // latest exception in flow should be propagated to end user
+        if (e.getFallbackException() instanceof FallbackInvocationException) {
+            cause = e.getFallbackException().getCause();
+            if (cause instanceof HystrixRuntimeException) {
+                cause = getCause((HystrixRuntimeException) cause);
+            }
+        } else if (cause instanceof CommandActionExecutionException) { // this situation is possible only if a callee throws an exception which type extends Throwable directly
+            CommandActionExecutionException commandActionExecutionException = (CommandActionExecutionException) cause;
+            cause = commandActionExecutionException.getCause();
+        }
+
+        return Optional.fromNullable(cause).or(e);
     }
 
     /**
@@ -251,7 +273,14 @@ public class HystrixCommandAspect {
         COLLAPSER;
 
         static HystrixPointcutType of(Method method) {
-            return method.isAnnotationPresent(HystrixCommand.class) ? COMMAND : COLLAPSER;
+            if (method.isAnnotationPresent(HystrixCommand.class)) {
+                return COMMAND;
+            } else if (method.isAnnotationPresent(HystrixCollapser.class)) {
+                return COLLAPSER;
+            } else {
+                String methodInfo = getMethodInfo(method);
+                throw new IllegalStateException("'https://github.com/Netflix/Hystrix/issues/1458' - no valid annotation found for: \n" + methodInfo);
+            }
         }
     }
 

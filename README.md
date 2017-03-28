@@ -2,6 +2,7 @@
 
 # Hystrix: Latency and Fault Tolerance for Distributed Systems
 
+[![NetflixOSS Lifecycle](https://img.shields.io/osslifecycle/Netflix/PROJECTNAMEHERE.svg)]()
 [![][travis img]][travis]
 [![][maven img]][maven]
 [![][license img]][license]
@@ -181,7 +182,7 @@ More information can be found on the [Dashboard Wiki](https://github.com/Netflix
 
 ## Bugs and Feedback
 
-For bugs, questions and discussions please use the [Github Issues](https://github.com/Netflix/Hystrix/issues).
+For bugs, questions and discussions please use the [GitHub Issues](https://github.com/Netflix/Hystrix/issues).
 
  
 ## LICENSE

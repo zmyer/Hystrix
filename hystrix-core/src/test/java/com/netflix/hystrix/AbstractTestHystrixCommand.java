@@ -20,7 +20,7 @@ import com.netflix.hystrix.strategy.properties.HystrixPropertiesStrategy;
 public interface AbstractTestHystrixCommand<R> extends HystrixObservable<R>, InspectableBuilder {
 
     enum ExecutionResult {
-        SUCCESS, FAILURE, ASYNC_FAILURE, HYSTRIX_FAILURE, ASYNC_HYSTRIX_FAILURE, RECOVERABLE_ERROR, ASYNC_RECOVERABLE_ERROR, UNRECOVERABLE_ERROR, ASYNC_UNRECOVERABLE_ERROR, BAD_REQUEST, ASYNC_BAD_REQUEST, MULTIPLE_EMITS_THEN_SUCCESS, MULTIPLE_EMITS_THEN_FAILURE, NO_EMITS_THEN_SUCCESS
+        SUCCESS, FAILURE, ASYNC_FAILURE, HYSTRIX_FAILURE, NOT_WRAPPED_FAILURE, ASYNC_HYSTRIX_FAILURE, RECOVERABLE_ERROR, ASYNC_RECOVERABLE_ERROR, UNRECOVERABLE_ERROR, ASYNC_UNRECOVERABLE_ERROR, BAD_REQUEST, ASYNC_BAD_REQUEST, BAD_REQUEST_NOT_WRAPPED, MULTIPLE_EMITS_THEN_SUCCESS, MULTIPLE_EMITS_THEN_FAILURE, NO_EMITS_THEN_SUCCESS
     }
 
     enum FallbackResult {
@@ -46,9 +46,9 @@ public interface AbstractTestHystrixCommand<R> extends HystrixObservable<R>, Ins
         @Override
         public HystrixThreadPoolProperties getThreadPoolProperties(HystrixThreadPoolKey threadPoolKey, HystrixThreadPoolProperties.Setter builder) {
             if (builder == null) {
-                builder = HystrixThreadPoolProperties.Setter.getUnitTestPropertiesBuilder();
+                builder = HystrixThreadPoolPropertiesTest.getUnitTestPropertiesBuilder();
             }
-            return HystrixThreadPoolProperties.Setter.asMock(builder);
+            return HystrixThreadPoolPropertiesTest.asMock(builder);
         }
 
         @Override
