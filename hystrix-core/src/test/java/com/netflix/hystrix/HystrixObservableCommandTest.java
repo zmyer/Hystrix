@@ -30,13 +30,8 @@ import com.netflix.hystrix.strategy.properties.HystrixProperty;
 import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
-import rx.Notification;
-import rx.Observable;
+import rx.*;
 import rx.Observable.OnSubscribe;
-import rx.Observer;
-import rx.Scheduler;
-import rx.Subscriber;
-import rx.Subscription;
 import rx.functions.Action0;
 import rx.functions.Action1;
 import rx.functions.Func0;
@@ -112,6 +107,57 @@ public class HystrixObservableCommandTest extends CommonHystrixCommandTests<Test
         //        if (key != null) {
         //            throw new IllegalStateException("should be null but got: " + key);
         //        }
+    }
+
+    class CompletableCommand extends HystrixObservableCommand<Integer> {
+
+        CompletableCommand() {
+            super(Setter.withGroupKey(HystrixCommandGroupKey.Factory.asKey("COMPLETABLE")));
+        }
+
+        @Override
+        protected Observable<Integer> construct() {
+            return Completable.complete().toObservable();
+        }
+    }
+
+    @Test
+    public void testCompletable() throws InterruptedException {
+
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final HystrixObservableCommand<Integer> command = new CompletableCommand();
+
+        command.observe().subscribe(new Subscriber<Integer>() {
+            @Override
+            public void onCompleted() {
+                System.out.println(System.currentTimeMillis() + " : " + Thread.currentThread().getName() + " OnCompleted");
+                latch.countDown();
+            }
+
+            @Override
+            public void onError(Throwable e) {
+                System.out.println(System.currentTimeMillis() + " : " + Thread.currentThread().getName() + " OnError : " + e);
+                latch.countDown();
+            }
+
+            @Override
+            public void onNext(Integer integer) {
+                System.out.println(System.currentTimeMillis() + " : " + Thread.currentThread().getName() + " OnNext : " + integer);
+            }
+        });
+
+        latch.await();
+        assertEquals(null, command.getFailedExecutionException());
+
+        System.out.println("ReqLog : " + HystrixRequestLog.getCurrentRequest().getExecutedCommandsAsString());
+        assertTrue(command.getExecutionTimeInMilliseconds() > -1);
+        assertTrue(command.isSuccessfulExecution());
+        assertFalse(command.isResponseFromFallback());
+        assertCommandExecutionEvents(command, HystrixEventType.SUCCESS);
+        assertEquals(0, command.metrics.getCurrentConcurrentExecutionCount());
+        assertSaneHystrixRequestLog(1);
+        assertNull(command.getExecutionException());
     }
 
     /**
@@ -1110,7 +1156,7 @@ public class HystrixObservableCommandTest extends CommonHystrixCommandTests<Test
         final CountDownLatch allTerminal = new CountDownLatch(1);
 
         Observable.merge(results)
-                .subscribeOn(Schedulers.computation())
+                .subscribeOn(Schedulers.newThread())
                 .subscribe(new Subscriber<Boolean>() {
                     @Override
                     public void onCompleted() {
@@ -1131,7 +1177,7 @@ public class HystrixObservableCommandTest extends CommonHystrixCommandTests<Test
                 });
 
         try {
-            assertTrue(startLatch.await(1000, TimeUnit.MILLISECONDS));
+            assertTrue(startLatch.await(20, TimeUnit.SECONDS));
         } catch (Throwable ex) {
             fail(ex.getMessage());
         }
@@ -1147,7 +1193,7 @@ public class HystrixObservableCommandTest extends CommonHystrixCommandTests<Test
         isolatedLatch.countDown();
 
         try {
-            assertTrue(allTerminal.await(1000, TimeUnit.MILLISECONDS));
+            assertTrue(allTerminal.await(5000, TimeUnit.MILLISECONDS));
         } catch (Exception e) {
             e.printStackTrace();
             fail("failed waiting on commands");
@@ -2394,6 +2440,7 @@ public class HystrixObservableCommandTest extends CommonHystrixCommandTests<Test
 
         System.out.println(">>>>> Begin: " + System.currentTimeMillis());
 
+        final AtomicBoolean startedExecution = new AtomicBoolean();
         HystrixObservableCommand<String> command = new HystrixObservableCommand<String>(properties) {
             @Override
             protected Observable<String> construct() {
@@ -2403,6 +2450,7 @@ public class HystrixObservableCommandTest extends CommonHystrixCommandTests<Test
                     @Override
                     public void call(Subscriber<? super String> t1) {
                         try {
+                            startedExecution.set(true);
                             Thread.sleep(2000);
                         } catch (InterruptedException e) {
                             e.printStackTrace();
@@ -2431,7 +2479,7 @@ public class HystrixObservableCommandTest extends CommonHystrixCommandTests<Test
         assertEquals("expected fallback value", "timed-out", value);
 
         // Thread isolated
-        assertTrue(command.isExecutedInThread());
+        assertTrue(!startedExecution.get() || command.isExecutedInThread());
         assertNotNull(command.getExecutionException());
 
         assertEquals(0, command.metrics.getCurrentConcurrentExecutionCount());
@@ -2447,6 +2495,7 @@ public class HystrixObservableCommandTest extends CommonHystrixCommandTests<Test
                         .withExecutionIsolationStrategy(ExecutionIsolationStrategy.THREAD)
                         .withExecutionTimeoutInMilliseconds(50));
 
+        final AtomicBoolean startedExecution = new AtomicBoolean();
         HystrixObservableCommand<String> command = new HystrixObservableCommand<String>(properties) {
             @Override
             protected Observable<String> construct() {
@@ -2454,6 +2503,7 @@ public class HystrixObservableCommandTest extends CommonHystrixCommandTests<Test
 
                     @Override
                     public void call(Subscriber<? super String> t1) {
+                        startedExecution.set(true);
                         try {
                             Thread.sleep(2000);
                         } catch (InterruptedException e) {
@@ -2481,7 +2531,7 @@ public class HystrixObservableCommandTest extends CommonHystrixCommandTests<Test
         assertEquals("expected fallback value", "timed-out", value);
 
         // Thread isolated
-        assertTrue(command.isExecutedInThread());
+        assertTrue(!startedExecution.get() || command.isExecutedInThread());
         assertNotNull(command.getExecutionException());
 
         assertEquals(0, command.metrics.getCurrentConcurrentExecutionCount());
@@ -2654,7 +2704,7 @@ public class HystrixObservableCommandTest extends CommonHystrixCommandTests<Test
         final LatchedSemaphoreCommand command2 = new LatchedSemaphoreCommand(circuitBreaker, semaphore, startLatch, sharedLatch);
 
         Observable<Boolean> merged = Observable.merge(command1.toObservable(), command2.toObservable())
-                .subscribeOn(Schedulers.computation());
+                .subscribeOn(Schedulers.newThread());
 
         final CountDownLatch terminal = new CountDownLatch(1);
 
@@ -5388,6 +5438,7 @@ public class HystrixObservableCommandTest extends CommonHystrixCommandTests<Test
                     .setCircuitBreaker(circuitBreaker)
                     .setMetrics(circuitBreaker.metrics)
                     .setCommandPropertiesDefaults(HystrixCommandPropertiesTest.getUnitTestPropertiesSetter()
+                            .withExecutionTimeoutEnabled(false)
                             .withExecutionIsolationStrategy(ExecutionIsolationStrategy.SEMAPHORE)
                             .withCircuitBreakerEnabled(false))
                     .setExecutionSemaphore(semaphore));
@@ -5414,7 +5465,7 @@ public class HystrixObservableCommandTest extends CommonHystrixCommandTests<Test
                         s.onCompleted();
                     }
                 }
-            }).subscribeOn(Schedulers.computation());
+            }).subscribeOn(Schedulers.newThread());
         }
 
         @Override

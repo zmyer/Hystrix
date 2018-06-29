@@ -32,6 +32,7 @@ import com.netflix.hystrix.HystrixCircuitBreaker.HystrixCircuitBreakerImpl;
 import com.netflix.hystrix.strategy.HystrixPlugins;
 import com.netflix.hystrix.strategy.executionhook.HystrixCommandExecutionHook;
 import rx.Observable;
+import rx.Subscription;
 
 /**
  * These tests each use a different command key to ensure that running them in parallel doesn't allow the state
@@ -94,6 +95,16 @@ public class HystrixCircuitBreakerTest {
         }
 
         @Override
+        public void markNonSuccess() {
+
+        }
+
+        @Override
+        public boolean attemptExecution() {
+            return !isOpen();
+        }
+
+        @Override
         public boolean allowRequest() {
             return !isOpen();
         }
@@ -123,7 +134,7 @@ public class HystrixCircuitBreakerTest {
 
             // this should still allow requests as everything has been successful
             Thread.sleep(100);
-            assertTrue(cb.allowRequest());
+            //assertTrue(cb.allowRequest());
             assertFalse(cb.isOpen());
 
             // fail
@@ -298,7 +309,6 @@ public class HystrixCircuitBreakerTest {
 
             // this should trip the circuit as the error percentage is above the threshold
             Thread.sleep(100);
-            assertFalse(cb.allowRequest());
             assertTrue(cb.isOpen());
         } catch (Exception e) {
             e.printStackTrace();
@@ -338,11 +348,11 @@ public class HystrixCircuitBreakerTest {
             Thread.sleep(sleepWindow + 50);
 
             // we should now allow 1 request
-            assertTrue(cb.allowRequest());
+            assertTrue(cb.attemptExecution());
             // but the circuit should still be open
             assertTrue(cb.isOpen());
             // and further requests are still blocked
-            assertFalse(cb.allowRequest());
+            assertFalse(cb.attemptExecution());
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -378,7 +388,6 @@ public class HystrixCircuitBreakerTest {
             Thread.sleep(100);
             System.out.println("ReqLog : " + HystrixRequestLog.getCurrentRequest().getExecutedCommandsAsString());
             System.out.println("CircuitBreaker state 1 : " + cmd1.getMetrics().getHealthCounts());
-            assertFalse(cb.allowRequest());
             assertTrue(cb.isOpen());
 
             // wait for sleepWindow to pass
@@ -438,16 +447,15 @@ public class HystrixCircuitBreakerTest {
             cmd4.execute();
 
             // everything has failed in the test window so we should return false now
-            System.out.println("!!!! 1 4 failures, circuit will open on recalc");
+            System.out.println("!!!! 1: 4 failures, circuit will open on recalc");
             Thread.sleep(100);
 
-            assertFalse(cb.allowRequest());
             assertTrue(cb.isOpen());
 
             // wait for sleepWindow to pass
-            System.out.println("!!!! 2 Sleep window starting where all commands fail-fast");
+            System.out.println("!!!! 2: Sleep window starting where all commands fail-fast");
             Thread.sleep(sleepWindow + 50);
-            System.out.println("!!!! 3 Sleep window over, should allow singleTest()");
+            System.out.println("!!!! 3: Sleep window over, should allow singleTest()");
 
             // but the circuit should still be open
             assertTrue(cb.isOpen());
@@ -455,14 +463,14 @@ public class HystrixCircuitBreakerTest {
             // we should now allow 1 request, and upon failure, should not affect the circuit breaker, which should remain open
             HystrixCommand<Boolean> cmd5 = new FailureCommand(key, 60);
             Observable<Boolean> asyncResult5 = cmd5.observe();
-            System.out.println("!!!! Kicked off the single-test");
+            System.out.println("!!!! 4: Kicked off the single-test");
 
             // and further requests are still blocked while the singleTest command is in flight
             assertFalse(cb.allowRequest());
-            System.out.println("!!!! Confirmed that no other requests go out during single-test");
+            System.out.println("!!!! 5: Confirmed that no other requests go out during single-test");
 
             asyncResult5.toBlocking().single();
-            System.out.println("!!!! SingleTest just completed");
+            System.out.println("!!!! 6: SingleTest just completed");
 
             // all requests should still be blocked, because the singleTest failed
             assertFalse(cb.allowRequest());
@@ -548,6 +556,56 @@ public class HystrixCircuitBreakerTest {
             cmd4.execute();
 
             // even though it has all failed we won't trip the circuit because the volume is low
+            Thread.sleep(100);
+            assertTrue(cb.allowRequest());
+            assertFalse(cb.isOpen());
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            fail("Error occurred: " + e.getMessage());
+        }
+    }
+
+    @Test
+    public void testUnsubscriptionDoesNotLeaveCircuitStuckHalfOpen() {
+        String key = "cmd-J";
+        try {
+            int sleepWindow = 200;
+
+            // fail
+            HystrixCommand<Boolean> cmd1 = new FailureCommand(key, 1, sleepWindow);
+            HystrixCommand<Boolean> cmd2 = new FailureCommand(key, 1, sleepWindow);
+            HystrixCommand<Boolean> cmd3 = new FailureCommand(key, 1, sleepWindow);
+            HystrixCommand<Boolean> cmd4 = new FailureCommand(key, 1, sleepWindow);
+            cmd1.execute();
+            cmd2.execute();
+            cmd3.execute();
+            cmd4.execute();
+
+            HystrixCircuitBreaker cb = cmd1.circuitBreaker;
+
+            // everything has failed in the test window so we should return false now
+            Thread.sleep(100);
+            assertFalse(cb.allowRequest());
+            assertTrue(cb.isOpen());
+
+            //this should occur after the sleep window, so get executed
+            //however, it is unsubscribed, so never updates state on the circuit-breaker
+            HystrixCommand<Boolean> cmd5 = new SuccessCommand(key, 5000, sleepWindow);
+
+            //wait for sleep window to pass
+            Thread.sleep(sleepWindow + 50);
+
+            Observable<Boolean> o = cmd5.observe();
+            Subscription s = o.subscribe();
+            s.unsubscribe();
+
+            //wait for 10 sleep windows, then try a successful command.  this should return the circuit to CLOSED
+
+            Thread.sleep(10 * sleepWindow);
+            HystrixCommand<Boolean> cmd6 = new SuccessCommand(key, 1, sleepWindow);
+            cmd6.execute();
+
             Thread.sleep(100);
             assertTrue(cb.allowRequest());
             assertFalse(cb.isOpen());

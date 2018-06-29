@@ -17,11 +17,8 @@ package com.netflix.hystrix.contrib.codahalemetricspublisher;
 
 import com.codahale.metrics.Gauge;
 import com.codahale.metrics.MetricRegistry;
-import com.netflix.hystrix.HystrixCircuitBreaker;
-import com.netflix.hystrix.HystrixCommandGroupKey;
-import com.netflix.hystrix.HystrixCommandKey;
-import com.netflix.hystrix.HystrixCommandMetrics;
-import com.netflix.hystrix.HystrixCommandProperties;
+import com.netflix.hystrix.*;
+import com.netflix.hystrix.metric.consumer.*;
 import com.netflix.hystrix.strategy.metrics.HystrixMetricsPublisherCommand;
 import com.netflix.hystrix.util.HystrixRollingNumberEvent;
 import org.slf4j.Logger;
@@ -32,6 +29,7 @@ import rx.functions.Func0;
  * Implementation of {@link HystrixMetricsPublisherCommand} using Coda Hale Metrics (https://github.com/codahale/metrics)
  */
 public class HystrixCodaHaleMetricsPublisherCommand implements HystrixMetricsPublisherCommand {
+    private final String metricsRootNode;
     private final HystrixCommandKey key;
     private final HystrixCommandGroupKey commandGroupKey;
     private final HystrixCommandMetrics metrics;
@@ -43,7 +41,8 @@ public class HystrixCodaHaleMetricsPublisherCommand implements HystrixMetricsPub
 
     static final Logger logger = LoggerFactory.getLogger(HystrixCodaHaleMetricsPublisherCommand.class);
 
-    public HystrixCodaHaleMetricsPublisherCommand(HystrixCommandKey commandKey, HystrixCommandGroupKey commandGroupKey, HystrixCommandMetrics metrics, HystrixCircuitBreaker circuitBreaker, HystrixCommandProperties properties, MetricRegistry metricRegistry) {
+    public HystrixCodaHaleMetricsPublisherCommand(String metricsRootNode, HystrixCommandKey commandKey, HystrixCommandGroupKey commandGroupKey, HystrixCommandMetrics metrics, HystrixCircuitBreaker circuitBreaker, HystrixCommandProperties properties, MetricRegistry metricRegistry) {
+        this.metricsRootNode = metricsRootNode;
         this.key = commandKey;
         this.commandGroupKey = commandGroupKey;
         this.metrics = metrics;
@@ -118,6 +117,12 @@ public class HystrixCodaHaleMetricsPublisherCommand implements HystrixMetricsPub
             @Override
             public HystrixRollingNumberEvent call() {
                 return HystrixRollingNumberEvent.FALLBACK_FAILURE;
+            }
+        });
+        safelyCreateCumulativeCountForEvent("countFallbackDisabled", new Func0<HystrixRollingNumberEvent>() {
+            @Override
+            public HystrixRollingNumberEvent call() {
+                return HystrixRollingNumberEvent.FALLBACK_DISABLED;
             }
         });
         safelyCreateCumulativeCountForEvent("countFallbackMissing", new Func0<HystrixRollingNumberEvent>() {
@@ -216,6 +221,12 @@ public class HystrixCodaHaleMetricsPublisherCommand implements HystrixMetricsPub
             @Override
             public HystrixRollingNumberEvent call() {
                 return HystrixRollingNumberEvent.FALLBACK_FAILURE;
+            }
+        });
+        safelyCreateRollingCountForEvent("rollingCountFallbackDisabled", new Func0<HystrixRollingNumberEvent>() {
+            @Override
+            public HystrixRollingNumberEvent call() {
+                return HystrixRollingNumberEvent.FALLBACK_DISABLED;
             }
         });
         safelyCreateRollingCountForEvent("rollingCountFallbackMissing", new Func0<HystrixRollingNumberEvent>() {
@@ -488,10 +499,16 @@ public class HystrixCodaHaleMetricsPublisherCommand implements HystrixMetricsPub
                 return properties.fallbackIsolationSemaphoreMaxConcurrentRequests().get();
             }
         });
+
+        RollingCommandEventCounterStream.getInstance(key, properties).startCachingStreamValuesIfUnstarted();
+        CumulativeCommandEventCounterStream.getInstance(key, properties).startCachingStreamValuesIfUnstarted();
+        RollingCommandLatencyDistributionStream.getInstance(key, properties).startCachingStreamValuesIfUnstarted();
+        RollingCommandUserLatencyDistributionStream.getInstance(key, properties).startCachingStreamValuesIfUnstarted();
+        RollingCommandMaxConcurrencyStream.getInstance(key, properties).startCachingStreamValuesIfUnstarted();
     }
 
     protected String createMetricName(String name) {
-        return MetricRegistry.name(metricGroup, metricType, name);
+        return MetricRegistry.name(metricsRootNode, metricGroup, metricType, name);
     }
 
     protected void createCumulativeCountForEvent(final String name, final HystrixRollingNumberEvent event) {

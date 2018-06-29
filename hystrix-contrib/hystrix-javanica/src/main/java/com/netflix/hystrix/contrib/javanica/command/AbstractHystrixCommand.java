@@ -168,14 +168,6 @@ public abstract class AbstractHystrixCommand<T> extends com.netflix.hystrix.Hyst
     protected abstract T run() throws Exception;
 
     /**
-     * {@inheritDoc}.
-     */
-    @Override
-    protected T getFallback() {
-        throw new RuntimeException("No fallback available.", getExecutionException());
-    }
-
-    /**
      * Clears cache for the specified hystrix command.
      */
     protected void flushCache() {
@@ -202,7 +194,7 @@ public abstract class AbstractHystrixCommand<T> extends com.netflix.hystrix.Hyst
      * Builder to create error message for failed fallback operation.
      */
     static class FallbackErrorMessageBuilder {
-        private StringBuilder builder = new StringBuilder("failed to processed fallback");
+        private StringBuilder builder = new StringBuilder("failed to process fallback");
 
         static FallbackErrorMessageBuilder create() {
             return new FallbackErrorMessageBuilder();
